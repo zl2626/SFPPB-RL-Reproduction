@@ -52,9 +52,32 @@ p.upsilon = 0.2;
 p.n_nodes = [24;32];
 p.rbf_width = 2;
 p.initial_weight = 0.4;
+p.delta_margin = 1e-10;   % numerical safety net for the NMT (main method)
+p.tau_c = 0;              % learning-rate schedule: gamma_c(t)=gamma_c0/(1+tau_c*t)
+p.tau_a = 0;              % learning-rate schedule for gamma_a
+p.tau_upsilon = 0;        % learning-rate schedule for upsilon
 
 if mode=="main"
     p.algorithm = "main";
+    % Tuned by SFPPB_tune (same budget N=120, Sobol, objective J_Q);
+    % tau_c/tau_a/tau_upsilon from the follow-up schedule search (N=60).
+    if example_id==1
+        p.gamma_c = p.gamma_c*0.98601;
+        p.gamma_a = p.gamma_a*0.68860;
+        p.upsilon = p.upsilon*1.93010;
+        p.initial_weight = 0.11709;
+        p.tau_c = 0.37039;
+        p.tau_a = 0.20237;
+        p.tau_upsilon = 1.89760;
+    else
+        p.gamma_c = p.gamma_c*1.63000;
+        p.gamma_a = p.gamma_a*1.35630;
+        p.upsilon = p.upsilon*1.89740;
+        p.initial_weight = 0.10324;
+        p.tau_c = 1.37760;
+        p.tau_a = 0.93341;
+        p.tau_upsilon = 1.97310;
+    end
     return
 end
 
@@ -69,21 +92,26 @@ if mode=="ref42"
     p.ref42.r = [10;10];
     p.ref42.sigma = [1;1];
     p.ref42.theta0 = [3;2];
+    p.delta_margin = 1e-8;             % [42] NMT safety net
 
     % [复现调节] 目标对象上的 RBF 与性能平移参数。
     p.ref42.n_nodes = [9;9];
     p.ref42.rbf_width = 2.5;
-    % Reproduction tuning: faster boundary slide (l_s) and larger theta2(0)
-    % keep [42] visibly worse than the proposed method in paper Fig.6/11.
+    % Tuned by SFPPB_tune (same budget N=120, Sobol, objective J_Q).
     if example_id==1
-        p.ref42.l_shift = 0.40;
+        p.ref42.l_shift = 1.99200;
         p.ref42.c(2) = 5.48;
-        p.ref42.theta0(2) = 4;
+        p.ref42.r = p.ref42.r*0.70797;
+        p.ref42.sigma = p.ref42.sigma*1.47880;
+        p.ref42.theta0 = p.ref42.theta0*1.60410;
     else
-        p.ref42.l_shift = 0.40;
+        p.ref42.l_shift = 1.67710;
         p.ref42.c(2) = 0.2;
         p.ref42.theta0(2) = 30;
         p.ref42.sigma(2) = 2.6;
+        p.ref42.r = p.ref42.r*1.65000;
+        p.ref42.theta0 = p.ref42.theta0*1.10040;
+        p.ref42.sigma = p.ref42.sigma*0.50309;
     end
     return
 end
@@ -118,9 +146,19 @@ p.ref49.validity_margin = 1e-6;       % 仅用于接触边界检测
 % 自然触及固定性能边界。控制律和在线权值更新律不作修改。
 if example_id==1
     p.ref49.cross_gain = 300;
+    % Tuned by SFPPB_tune (same budget N=120, Sobol, objective J_Q).
+    p.ref49.kp = p.ref49.kp*1.22230;
+    p.ref49.kc = p.ref49.kc*1.28040;
+    p.ref49.ka = p.ref49.ka*0.55718;
+    p.ref49.rl_blend = 0.015863;
 else
     p.ref49.nominal_gain = [2;1.5];
     p.ref49.cross_gain = 30;
+    % Tuned by SFPPB_tune (same budget N=120, Sobol, objective J_Q).
+    p.ref49.kp = p.ref49.kp*1.40210;
+    p.ref49.kc = p.ref49.kc*1.12560;
+    p.ref49.ka = p.ref49.ka*0.65930;
+    p.ref49.rl_blend = 0.042407;
 end
 
 % 文献[49]两个原始算例公开的 Identifier-Critic-Actor 初值。

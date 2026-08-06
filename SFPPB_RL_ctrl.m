@@ -51,19 +51,24 @@ global SFPPB_RL_P
 p = SFPPB_RL_P;
 [v,W] = modelSignals(t,x,u,p);
 
+% Learning-rate schedule (engineering layer; the update direction is unchanged)
+gamma_c = p.gamma_c./(1+p.tau_c*t);
+gamma_a = p.gamma_a./(1+p.tau_a*t);
+upsilon = p.upsilon./(1+p.tau_upsilon*t);
+
 % (40) Identifier:  dW_Fj = upsilon*(z_j*S_Fj - sigma_j*W_Fj)
-dW_F1 = p.upsilon*(v.z{1}*v.S_F{1} - p.sigma(1)*W.W_F{1});
-dW_F2 = p.upsilon*(v.z{2}*v.S_F{2} - p.sigma(2)*W.W_F{2});
+dW_F1 = upsilon*(v.z{1}*v.S_F{1} - p.sigma(1)*W.W_F{1});
+dW_F2 = upsilon*(v.z{2}*v.S_F{2} - p.sigma(2)*W.W_F{2});
 
 % (43) Critic:  dW_cj = -gamma_cj*S_Jj*S_Jj'*W_cj
-dW_c1 = -p.gamma_c(1)*v.S_J{1}*(v.S_J{1}'*W.W_c{1});
-dW_c2 = -p.gamma_c(2)*v.S_J{2}*(v.S_J{2}'*W.W_c{2});
+dW_c1 = -gamma_c(1)*v.S_J{1}*(v.S_J{1}'*W.W_c{1});
+dW_c2 = -gamma_c(2)*v.S_J{2}*(v.S_J{2}'*W.W_c{2});
 
 % (46) Actor:  dW_aj = -S_Jj*S_Jj'*(gamma_aj*(W_aj-W_cj)+gamma_cj*W_cj)
-dW_a1 = -v.S_J{1}*(v.S_J{1}'*(p.gamma_a(1)*(W.W_a{1}-W.W_c{1}) ...
-    + p.gamma_c(1)*W.W_c{1}));
-dW_a2 = -v.S_J{2}*(v.S_J{2}'*(p.gamma_a(2)*(W.W_a{2}-W.W_c{2}) ...
-    + p.gamma_c(2)*W.W_c{2}));
+dW_a1 = -v.S_J{1}*(v.S_J{1}'*(gamma_a(1)*(W.W_a{1}-W.W_c{1}) ...
+    + gamma_c(1)*W.W_c{1}));
+dW_a2 = -v.S_J{2}*(v.S_J{2}'*(gamma_a(2)*(W.W_a{2}-W.W_c{2}) ...
+    + gamma_c(2)*W.W_c{2}));
 
 sys = [dW_F1; dW_c1; dW_a1; dW_F2; dW_c2; dW_a2];
 end
@@ -119,7 +124,7 @@ v.B_upper = b_upper + p.initial_error*shift; % B_upper(t) for plotting
 epsilon    = v.e1 - p.initial_error*shift;
 gap        = max(b_upper - b_lower, 1e-10);  % numerical margin only
 v.delta    = (epsilon - b_lower)/gap;
-delta_safe = min(max(v.delta,1e-10),1-1e-10);
+delta_safe = min(max(v.delta,p.delta_margin),1-p.delta_margin);
 
 % (14): z1 = ln(delta/(1-delta))
 v.z{1} = log(delta_safe/(1-delta_safe));

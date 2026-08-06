@@ -4,7 +4,7 @@ function [sys,x0,str,ts] = Ref42_SFPPC_ctrl(t,x,u,flag)
 %  state x = [Psi_hat_1; Psi_hat_2; rho; o]
 %  input  u = [x1; x2]
 %  output  = [u; S(u); yd; e1; B_lower; B_upper; z1; z2;
-%             Psi_hat_1; Psi_hat_2; rho; o]
+%             Psi_hat_1; Psi_hat_2; rho; o; alpha_1]
 %
 %  Paper [42] formulas:
 %    SFPCB ................. (9)-(13)
@@ -30,7 +30,7 @@ p = SFPPB_RL_P;
 sizes = simsizes;
 sizes.NumContStates  = 4;            % [Psi_hat_1; Psi_hat_2; rho; o]
 sizes.NumDiscStates  = 0;
-sizes.NumOutputs     = 12;
+sizes.NumOutputs     = 13;
 sizes.NumInputs      = 2;
 sizes.DirFeedthrough = 1;
 sizes.NumSampleTimes = 1;
@@ -78,7 +78,7 @@ function sys = mdlOutputs(t,x,u)
 global SFPPB_RL_P
 v = localSignals(t,x,u,SFPPB_RL_P);
 sys = [v.u; v.S_u; v.yd; v.e1; v.B_lower; v.B_upper; ...
-    v.z1; v.z2; x(1); x(2); x(3); x(4)];
+    v.z1; v.z2; x(1); x(2); x(3); x(4); v.alpha_1];
 end
 
 function v = localSignals(t,x,u,p)
@@ -106,7 +106,7 @@ v.B_upper = b_upper + p.initial_error*shift;
 % (12)-(13): relative error and NMT variable
 epsilon = v.e1 - p.initial_error*shift;
 gap     = max(b_upper-b_lower, 1e-9);
-delta   = min(max((epsilon-b_lower)/gap, 1e-8), 1-1e-8);
+delta   = min(max((epsilon-b_lower)/gap, p.delta_margin), 1-p.delta_margin);
 v.z1    = log(delta/(1-delta));      % (17)
 v.A     = 1/(delta*(1-delta)*gap);   % mu = A
 

@@ -187,7 +187,8 @@ end
 function signals=collectSignals(out)
 names={'x1','x2','u','u_sat','yd','error','lower','upper','z1','z2', ...
     'theta1','theta2','rho','O','Wp1_norm','Wp2_norm','Wc1_norm', ...
-    'Wc2_norm','Wa1_norm','Wa2_norm','WF1_norm','WF2_norm','valid'};
+    'Wc2_norm','Wa1_norm','Wa2_norm','WF1_norm','WF2_norm','valid', ...
+    'alpha1','delta'};
 signals=struct;
 available=out.who;
 for k=1:numel(names)
@@ -230,36 +231,72 @@ result=struct('algorithm',"",'comparison_group',"",'example_id',NaN, ...
 end
 
 function report=validateMain(results)
-report=table('Size',[numel(results) 7], ...
-    'VariableTypes',{'double','double','double','double','double','logical','logical'}, ...
+report=table('Size',[numel(results) 13], ...
+    'VariableTypes',{'double','double','double','double','double','logical','logical', ...
+    'double','double','double','double','double','double'}, ...
     'VariableNames',{'Example','InitialError','MaxBoundaryViolation', ...
-    'MaxSaturatedInput','FinalAbsError','BoundarySatisfied','InputSatisfied'});
+    'MaxSaturatedInput','FinalAbsError','BoundarySatisfied','InputSatisfied', ...
+    'DeltaClampCount','DeltaClampFraction','DeltaMaxViolation','QuadCost', ...
+    'ExcitedSJ1','ExcitedSJ2'});
 for k=1:numel(results)
     out=results(k).out;
-    e=out.error.Data(:);
-    violation=max([e-out.upper.Data(:);out.lower.Data(:)-e;0]);
-    max_input=max(abs(out.u_sat.Data(:)));
+    s=collectSignals(out);
+    e=s.error.Data(:);
+    violation=max([e-s.upper.Data(:);s.lower.Data(:)-e;0]);
+    max_input=max(abs(s.u_sat.Data(:)));
     final_error=abs(e(end));
+    p=SFPPB_params("main",results(k).example_id,results(k).initial_error,true);
+    [dcount,dfrac,dmax]=deltaStats(s,p.delta_margin);
+    J=quadraticCost(s);
+    [exc1,exc2]=excitationDirections(s,p,"main");
     report(k,:)={results(k).example_id,results(k).initial_error,violation, ...
-        max_input,final_error,violation<=1e-8,max_input<=2+1e-8};
+        max_input,final_error,violation<=1e-8,max_input<=2+1e-8, ...
+        dcount,dfrac,dmax,J,exc1,exc2};
+end
+if any(report.DeltaClampFraction>0.01)
+    warning('SFPPB_run:DeltaClamp','delta clamp activated on >1%% of samples in main cases.');
 end
 end
 
 function [report,acceptance]=validateComparison(results)
 n=numel(results);
-report=table('Size',[n 14], ...
+report=table('Size',[n 20], ...
     'VariableTypes',{'string','string','double','double','logical','logical', ...
-    'double','string','double','double','double','double','double','double'}, ...
+    'double','string','double','double','double','double','double','double', ...
+    'double','double','double','double','double','double'}, ...
     'VariableNames',{'Algorithm','Group','Example','InitialError','Saturation', ...
     'Completed','FailureTime','FailureReason','PeakAbsError','IAE', ...
-    'PeakRawInput','IntegralAppliedInput','SaturationDuration','MaxBoundaryViolation'});
+    'PeakRawInput','IntegralAppliedInput','SaturationDuration','MaxBoundaryViolation', ...
+    'DeltaClampCount','DeltaClampFraction','DeltaMaxViolation','QuadCost', ...
+    'ExcitedSJ1','ExcitedSJ2'});
 for k=1:n
     r=results(k);
     [peak_error,iae,peak_input,ju,saturation_duration,violation]= ...
         comparisonMetrics(r.signals,r.stop_time);
+    diag_algorithm = char(r.algorithm);
+    if strcmp(diag_algorithm,'proposed')
+        diag_algorithm = 'main';
+    end
+    p=SFPPB_params(diag_algorithm,r.example_id,r.initial_error, ...
+        r.saturation_enabled);
+    if r.algorithm=="ref49"
+        [dcount,dfrac,dmax]=deal(NaN,NaN,NaN);
+    else
+        [dcount,dfrac,dmax]=deltaStats(r.signals,p.delta_margin);
+    end
+    J=quadraticCost(r.signals);
+    if r.algorithm=="ref42"
+        [exc1,exc2]=deal(NaN,NaN);
+    else
+        [exc1,exc2]=excitationDirections(r.signals,p,diag_algorithm);
+    end
     report(k,:)={r.algorithm,r.comparison_group,r.example_id,r.initial_error, ...
         r.saturation_enabled,r.completed,r.failure_time,r.failure_reason, ...
-        peak_error,iae,peak_input,ju,saturation_duration,violation};
+        peak_error,iae,peak_input,ju,saturation_duration,violation, ...
+        dcount,dfrac,dmax,J,exc1,exc2};
+end
+if any(report.DeltaClampFraction>0.01)
+    warning('SFPPB_run:DeltaClamp','delta clamp activated on >1%% of samples in comparison cases.');
 end
 
 acceptance=table('Size',[2 7], ...
@@ -329,4 +366,95 @@ function value=ref42InitialError(example_id)
 %REF42INITIALERROR Paper Fig.6 (Example 1) uses e1(0)=+0.3, Fig.11 (Example 2)
 %uses e1(0)=-0.3 according to the paper's y-axis ranges.
 value = -0.3*double(example_id==2)+0.3*double(example_id==1);
+end
+
+function [count,fraction,maxviol]=deltaStats(s,margin)
+%DELTASTATS  Report how often the NMT safety net clamped delta to [m,1-m].
+count=NaN; fraction=NaN; maxviol=NaN;
+if ~isfield(s,'error') || ~isfield(s,'lower') || ~isfield(s,'upper') ...
+        || isempty(s.error.Time)
+    return;
+end
+e=s.error.Data(:); lo=s.lower.Data(:); hi=s.upper.Data(:);
+delta=(e-lo)./(hi-lo);
+finite=isfinite(delta);
+lo_viol=finite & delta<margin;
+hi_viol=finite & delta>1-margin;
+count=sum(lo_viol)+sum(hi_viol);
+fraction=count/numel(delta);
+maxviol=0;
+if any(lo_viol), maxviol=max(maxviol,margin-min(delta(lo_viol))); end
+if any(hi_viol), maxviol=max(maxviol,max(delta(hi_viol))-(1-margin)); end
+end
+
+function J=quadraticCost(s)
+%QUADRATICCOST  True quadratic stage cost of the paper:
+%  J_Q = int(z1^2+alpha1^2)dt + int(z2^2+u^2)dt.
+J=NaN;
+names={'z1','alpha1','z2','u'};
+if ~all(isfield(s,names)) || isempty(s.z1.Time), return; end
+t=s.z1.Time(:);
+if numel(t)<2, J=0; return; end
+J=0;
+for k=1:numel(names)
+    ts=s.(names{k}).Time(:);
+    v=s.(names{k}).Data(:);
+    if isempty(v), v=zeros(size(t)); end
+    if numel(ts)~=numel(t) || any(abs(ts-t)>1e-12)
+        v=interp1(ts,v,t,'linear','extrap');
+    end
+    J=J+trapz(t,v.^2);
+end
+end
+
+function [n1,n2]=excitationDirections(s,p,algorithm)
+%EXCITATIONDIRECTIONS  Effective number of excited RBF directions of S_J.
+%  Count singular values of the sampled basis matrix above 1% of the largest.
+n1=NaN; n2=NaN;
+if strcmp(algorithm,'ref42'), return; end
+if ~isfield(s,'z1') || ~isfield(s,'x1') || isempty(s.z1.Time), return; end
+idx=downsampleIndexes(numel(s.z1.Time),2000);
+x1=s.x1.Data(:);
+if strcmp(algorithm,'main')
+    z1=s.z1.Data(:); z2=s.z2.Data(:); x2=s.x2.Data(:);
+    M1=zeros(numel(idx),p.n_nodes(1));
+    M2=zeros(numel(idx),p.n_nodes(2));
+    for m=1:numel(idx)
+        i=idx(m);
+        M1(m,:)=sfppb_rbf([x1(i);z1(i)],p.n_nodes(1),p.rbf_width)';
+        M2(m,:)=sfppb_rbf([x1(i);x2(i);z2(i)],p.n_nodes(2),p.rbf_width)';
+    end
+else
+    xi1=s.z1.Data(:); xi2=s.z2.Data(:); x2=s.x2.Data(:);
+    M1=zeros(numel(idx),5);
+    M2=zeros(numel(idx),5);
+    for m=1:numel(idx)
+        i=idx(m);
+        M1(m,:)=ref49Rbf([x1(i);xi1(i)],[4 2 0 -2 -4],4)';
+        M2(m,:)=ref49Rbf([x1(i);x2(i);xi2(i)],[4 2 0 -2 -4],4)';
+    end
+end
+n1=effectiveRank(M1);
+n2=effectiveRank(M2);
+end
+
+function n=effectiveRank(M)
+s=svd(M,'econ');
+if isempty(s), n=0; return; end
+n=sum(s>0.01*max(s));
+end
+
+function idx=downsampleIndexes(n,max_n)
+if n<=max_n
+    idx=(1:n)';
+else
+    idx=round(linspace(1,n,max_n))';
+end
+end
+
+function phi=ref49Rbf(z,center_axis,denominator)
+%REF49RBF  [49] Gaussian basis replicated along the input diagonal.
+z=z(:);
+centers=repmat(center_axis,numel(z),1);
+phi=exp(-sum((z-centers).^2,1)'/denominator);
 end

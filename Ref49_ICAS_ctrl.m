@@ -17,7 +17,7 @@ n1=p.ref49.n_nodes(1); n2=p.ref49.n_nodes(2);
 sizes=simsizes;
 sizes.NumContStates=3*n1+3*n2;
 sizes.NumDiscStates=0;
-sizes.NumOutputs=15;
+sizes.NumOutputs=16;
 sizes.NumInputs=2;
 sizes.DirFeedthrough=1;
 sizes.NumSampleTimes=1;
@@ -68,7 +68,7 @@ global SFPPB_RL_P
 [v,w]=localSignals(t,x,u,SFPPB_RL_P);
 sys=[v.control;v.u_applied;v.yd;v.error;v.lower;v.upper;v.xi1;v.xi2; ...
     norm(w.Wp1);norm(w.Wp2);norm(w.Wc1);norm(w.Wc2); ...
-    norm(w.Wa1);norm(w.Wa2);double(v.valid)];
+    norm(w.Wa1);norm(w.Wa2);double(v.valid);v.alpha1];
 end
 
 function [v,w]=localSignals(t,x,u,p)
@@ -88,7 +88,7 @@ if ~valid1
     v.xi2=0;
     v.phiP1=zeros(n1,1); v.phiG1=zeros(n1,1);
     v.phiP2=zeros(n2,1); v.phiG2=zeros(n2,1);
-    v.control=0; v.u_applied=0; v.valid=false;
+    v.control=0; v.u_applied=0; v.alpha1=0; v.valid=false;
     return
 end
 ratio1=v.error/rho1;
@@ -109,13 +109,14 @@ alpha1_nominal=-f1+p.dyd(t)-p.ref49.nominal_gain(1)*v.error;
 alpha1=alpha1_nominal+p.ref49.rl_blend*alpha1_rl;
 
 z2=x2-alpha1;
+v.alpha1=alpha1;
 % 第二步同样采用文献[49]式(6)的误差变换。若 z2 触及固定边界，
 % 直接记录变换奇异失效，不以 0.98 数值限幅掩盖该现象。
 valid2=abs(z2)<rho2*(1-margin);
 if ~valid2
     v.xi2=0;
     v.phiP2=zeros(n2,1); v.phiG2=zeros(n2,1);
-    v.control=0; v.u_applied=0; v.valid=false;
+    v.control=0; v.u_applied=0; v.alpha1=0; v.valid=false;
     return
 end
 ratio2=z2/rho2;
