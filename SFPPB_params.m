@@ -49,6 +49,7 @@ p.gamma_c = [14;154];
 p.gamma_a = [18;298];
 p.sigma = [75;72];
 p.upsilon = 0.2;
+p.chi = 0.02;             % Critic/Actor 正则 chi*I（复现 Fig.4/9 权值衰减所需）
 p.n_nodes = [24;32];
 p.rbf_width = 2;
 p.initial_weight = 0.4;
@@ -69,6 +70,8 @@ if mode=="main"
         p.tau_c = 0.37039;
         p.tau_a = 0.20237;
         p.tau_upsilon = 1.89760;
+        p.chi = 0.082842;                 % weight-shaping search (N=60)
+        p.sigma = p.sigma*4.9407;
     else
         p.gamma_c = p.gamma_c*1.63000;
         p.gamma_a = p.gamma_a*1.35630;
@@ -77,6 +80,8 @@ if mode=="main"
         p.tau_c = 1.37760;
         p.tau_a = 0.93341;
         p.tau_upsilon = 1.97310;
+        p.chi = 0.099737;                 % weight-shaping search (N=60)
+        p.sigma = p.sigma*4.8534;
     end
     return
 end

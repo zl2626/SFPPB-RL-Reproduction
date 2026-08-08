@@ -105,11 +105,16 @@ SJ1 = SFPPB_rbf([x1; z1], n1, p.rbf_width);
 % ---------- Identifier, Eq. (40): dWF1 = upsilon*(z1*SF1 - sigma1*WF1)
 dWF1 = upsilon*(z1*SF1 - p.sigma(1)*WF1);
 
-% ---------- Critic, Eq. (43): dWc1 = -gamma_c1*SJ1*SJ1'*Wc1 ----------
-dWc1 = -gamma_c(1)*SJ1*(SJ1'*Wc1);
+% ---------- Critic/Actor regularization M = SJ*SJ' + chi*I ----------
+%  Eq. (43)/(46) 使用秩一 SJ*SJ'；为复现论文 Fig.4/9 的权值衰减，按 [49]
+%  的同样结构补 chi*I（README 已记录该复现假设）。
+M1 = SJ1*SJ1' + p.chi*eye(n1);
 
-% ---------- Actor, Eq. (46): dWa1 = -SJ1*SJ1'*(gamma_a1*(Wa1-Wc1)+gamma_c1*Wc1)
-dWa1 = -SJ1*(SJ1'*(gamma_a(1)*(Wa1-Wc1) + gamma_c(1)*Wc1));
+% ---------- Critic, Eq. (43): dWc1 = -gamma_c1*M1*Wc1 ----------
+dWc1 = -gamma_c(1)*M1*Wc1;
+
+% ---------- Actor, Eq. (46): dWa1 = -M1*(gamma_a1*(Wa1-Wc1)+gamma_c1*Wc1)
+dWa1 = -M1*(gamma_a(1)*(Wa1-Wc1) + gamma_c(1)*Wc1);
 
 % ---------- Virtual control, Eqs. (39),(44): alpha1 ----------
 F1_hat  = WF1'*SF1;
@@ -125,11 +130,14 @@ SJ2 = SFPPB_rbf([x1; x2; z2], n2, p.rbf_width);
 % ---------- Identifier, Eq. (40): step 2 ----------
 dWF2 = upsilon*(z2*SF2 - p.sigma(2)*WF2);
 
+% ---------- Critic/Actor regularization, step 2 ----------
+M2 = SJ2*SJ2' + p.chi*eye(n2);
+
 % ---------- Critic, Eq. (43): step 2 ----------
-dWc2 = -gamma_c(2)*SJ2*(SJ2'*Wc2);
+dWc2 = -gamma_c(2)*M2*Wc2;
 
 % ---------- Actor, Eq. (46): step 2 ----------
-dWa2 = -SJ2*(SJ2'*(gamma_a(2)*(Wa2-Wc2) + gamma_c(2)*Wc2));
+dWa2 = -M2*(gamma_a(2)*(Wa2-Wc2) + gamma_c(2)*Wc2);
 
 sys = [dWF1; dWc1; dWa1; dWF2; dWc2; dWa2];
 end

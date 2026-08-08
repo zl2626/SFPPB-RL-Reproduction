@@ -1,4 +1,4 @@
-function result = SFPPB_tune(algorithm, example_id, n_evals, schedule)
+function result = SFPPB_tune(algorithm, example_id, n_evals, schedule, weights)
 %SFPPB_TUNE  Same-budget Sobol tuning for proposed / [42] / [49].
 %
 %   RESULT = SFPPB_TUNE(ALGORITHM, EXAMPLE_ID, N_EVALS)
@@ -17,6 +17,7 @@ arguments
     example_id (1,1) double {mustBeMember(example_id,[1 2])}
     n_evals (1,1) double = 120
     schedule (1,1) logical = false
+    weights (1,1) logical = false
 end
 
 project_dir = fileparts(fileparts(mfilename('fullpath')));
@@ -32,7 +33,11 @@ scenarios = tuningScenarios(algorithm, example_id);
 switch algorithm
     case "main"
         model = 'SFPPB_RL_simulate';
-        if schedule
+        if weights
+            lb = [1e-3 1];
+            ub = [0.1 5];
+            labels = {'chi','s_sigma'};
+        elseif schedule
             lb = [0 0 0];
             ub = [2 2 2];
             labels = {'tau_c','tau_a','tau_upsilon'};
@@ -71,7 +76,7 @@ if n_evals >= 8
     parfor k = 1:n_evals
         x = X(k,:);
         par_results(k).J = evaluateScenarioSet(model, algorithm, ...
-            example_id, x, schedule, weight_bound, scenarios);
+            example_id, x, schedule, weights, weight_bound, scenarios);
         par_results(k).x = x;
     end
     J_all = [par_results.J]';
@@ -84,7 +89,7 @@ else
     for k = 1:n_evals
         x = X(k,:);
         J = evaluateScenarioSet(model, algorithm, example_id, x, ...
-            schedule, weight_bound, scenarios);
+            schedule, weights, weight_bound, scenarios);
         J_all(k) = J;
         if J < best_J
             best_J = J;
@@ -103,10 +108,13 @@ result = struct('algorithm',algorithm,'example_id',example_id, ...
     'stop_time',scenarios(1).stop_time, ...
     'initial_error',scenarios(1).initial_error, ...
     'saturation_enabled',scenarios(1).saturation, ...
-    'scenario_count',numel(scenarios),'schedule',schedule);
+    'scenario_count',numel(scenarios),'schedule',schedule, ...
+    'weights',weights);
 results_dir = fullfile(project_dir,'results');
 if ~isfolder(results_dir), mkdir(results_dir); end
-if schedule
+if weights
+    result_file = fullfile(project_dir,'results','tuning_weight_results.mat');
+elseif schedule
     result_file = fullfile(project_dir,'results','tuning_schedule_results.mat');
 else
     result_file = fullfile(project_dir,'results','tuning_results.mat');
@@ -146,7 +154,7 @@ end
 end
 
 function J = evaluateScenarioSet(model, algorithm, example_id, x, ...
-        schedule, weight_bound, scenarios)
+        schedule, weights, weight_bound, scenarios)
 %EVALUATESCENARIOSET  Sum J_Q over the scenario set; any failure -> Inf.
 J = 0;
 for k = 1:numel(scenarios)
@@ -155,24 +163,30 @@ for k = 1:numel(scenarios)
         sc.saturation);
     p.initial_x2 = sc.initial_x2;
     p.stop_time = sc.stop_time;
-    if schedule
+    if weights
+        p = applyWeightBase(p, algorithm, example_id);
+    elseif schedule
         p = applyTunedMainBase(p, algorithm, example_id);
     end
-    p = applyKnobs(p, algorithm, x, schedule);
-    J_scenario = evaluateTuning(model,p,algorithm,sc.stop_time,weight_bound);
+    p = applyKnobs(p, algorithm, x, schedule, weights);
+    [J_scenario, s] = evaluateTuning(model,p,algorithm,sc.stop_time,weight_bound);
     if ~isfinite(J_scenario)
         J = Inf;
         return;
     end
     J = J + J_scenario;
+    if weights
+        J = J + weightPenalty(s);
+    end
 end
 end
 
-function J = evaluateTuning(model,p,algorithm,stop_time,weight_bound)
+function [J,s] = evaluateTuning(model,p,algorithm,stop_time,weight_bound)
 %EVALUATETUNING  Run one candidate and return J_Q (Inf on any failure).
 global SFPPB_RL_P
 SFPPB_RL_P = p;
 J = Inf;
+s = struct;
 try
     out = sim(model,'StopTime',num2str(stop_time));
     s = collectSignalsTune(out);
@@ -193,8 +207,13 @@ catch
 end
 end
 
-function p = applyKnobs(p, algorithm, x, schedule)
+function p = applyKnobs(p, algorithm, x, schedule, weights)
 %APPLYKNOBS  Map the four normalized knobs to each algorithm's parameters.
+if algorithm == "main" && weights
+    p.chi = x(1);
+    p.sigma = p.sigma*x(2);
+    return;
+end
 if algorithm == "main" && schedule
     p.tau_c = x(1);
     p.tau_a = x(2);
@@ -222,6 +241,36 @@ switch algorithm
 end
 end
 
+function p = applyWeightBase(p, algorithm, example_id)
+%APPLYWEIGHTBASE  Fair-tuned main knobs + schedule taus, then shape weights.
+if algorithm ~= "main", return; end
+p = applyTunedMainBase(p, algorithm, example_id);
+result_file = fullfile(fileparts(fileparts(mfilename('fullpath'))), ...
+    'results','tuning_schedule_results.mat');
+if isfile(result_file)
+    d = load(result_file,'tuning_results');
+    idx = find(arrayfun(@(r) r.example_id==example_id, d.tuning_results),1);
+    if ~isempty(idx)
+        p.tau_c = d.tuning_results(idx).best_knobs(1);
+        p.tau_a = d.tuning_results(idx).best_knobs(2);
+        p.tau_upsilon = d.tuning_results(idx).best_knobs(3);
+    end
+end
+end
+
+function penalty = weightPenalty(s)
+%WEIGHTPENALTY  Penalize final weight norms above the paper's 1e-3 scale.
+names = {'Wc1_norm','Wc2_norm','Wa1_norm','Wa2_norm', ...
+    'WF1_norm','WF2_norm'};
+penalty = 0;
+for k = 1:numel(names)
+    if isfield(s,names{k}) && ~isempty(s.(names{k}).Data)
+        final_norm = abs(s.(names{k}).Data(end));
+        penalty = penalty + 1e4*max(final_norm - 0.002, 0);
+    end
+end
+end
+
 function p = applyTunedMainBase(p, algorithm, example_id)
 %APPLYTUNEDMAINBASE  Start the schedule search from the fair-tuned main knobs.
 if algorithm ~= "main", return; end
@@ -232,7 +281,7 @@ d = load(result_file,'tuning_results');
 idx = find(arrayfun(@(r) r.algorithm=="main" && r.example_id==example_id ...
     && (~isfield(r,'schedule') || ~r.schedule), d.tuning_results),1);
 if ~isempty(idx)
-    p = applyKnobs(p, algorithm, d.tuning_results(idx).best_knobs, false);
+    p = applyKnobs(p, algorithm, d.tuning_results(idx).best_knobs, false, false);
 end
 end
 
