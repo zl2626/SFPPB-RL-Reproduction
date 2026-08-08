@@ -1,4 +1,4 @@
-function phi = sfppb_rbf(z, node_count, width)
+function phi = SFPPB_rbf(z, node_count, width)
 %SFPPB_RBF Gaussian basis vector using the centers reported in the paper.
 % Eq. (5): s_j(Z) = exp(-||Z - zeta_j||^2 / a_j^2)
 % Section IV: 24 nodes use 8-(2/3)j, 32 nodes use 8-(1/2)j.
