@@ -4,6 +4,11 @@ function models = SFPPB_build(scope)
 %   SFPPB_BUILD("main")        builds SFPPB_RL_simulate.slx
 %   SFPPB_BUILD("comparison")  builds comparison/*.slx
 %
+%   Top level shows the physical loop:
+%     Reference yd -> SFPPB-RL Controller -> u -> Saturation S(u) -> Plant
+%     Plant states x1,x2 -> feedback; rho/O auxiliary dynamics are separate.
+%   Data recording is wrapped inside the "Simulation Logging" subsystem.
+%
 %   All models use fixed-step ode4 with step 0.001 s.
 arguments
     scope (1,1) string {mustBeMember(scope,["all","main","comparison"])} = "all"
@@ -11,7 +16,8 @@ end
 
 project_dir = fileparts(fileparts(mfilename('fullpath')));
 comparison_dir = fullfile(project_dir,'comparison');
-addpath(project_dir, comparison_dir, fileparts(mfilename('fullpath')));
+tools_dir = fileparts(mfilename('fullpath'));
+addpath(project_dir, comparison_dir, tools_dir);
 old_dir = pwd;
 cleanup = onCleanup(@()cd(old_dir));
 cd(project_dir);
@@ -41,38 +47,76 @@ model = 'SFPPB_RL_simulate';
 resetModel(model);
 setSolver(model,30);
 
-add_block('simulink/User-Defined Functions/S-Function',[model '/Plant'], ...
-    'FunctionName','SFPPB_plant','Position',[90 130 220 190]);
-add_block('simulink/Signal Routing/Demux',[model '/Plant states'], ...
-    'Outputs','2','Position',[260 125 265 195]);
-add_block('simulink/Signal Routing/Mux',[model '/Controller inputs'], ...
-    'Inputs','4','Position',[340 105 345 235]);
-add_block('simulink/User-Defined Functions/S-Function',[model '/SFPPB controller'], ...
-    'FunctionName','SFPPB_ctrl','Position',[400 125 560 195]);
-add_block('simulink/Signal Routing/Demux',[model '/Controller signals'], ...
-    'Outputs','18','Position',[610 60 615 330]);
-add_block('simulink/User-Defined Functions/S-Function',[model '/Auxiliary systems'], ...
-    'FunctionName','SFPPB_aux','Position',[400 310 560 365]);
-add_block('simulink/Signal Routing/Demux',[model '/Auxiliary states'], ...
-    'Outputs','2','Position',[610 315 615 365]);
+% ---------------- Reference block ----------------
+add_block('simulink/User-Defined Functions/S-Function',[model '/Reference yd'], ...
+    'FunctionName','SFPPB_ref', ...
+    'Position',[70 130 190 175]);
 
+% ---------------- Plant ----------------
+add_block('simulink/User-Defined Functions/S-Function',[model '/Plant'], ...
+    'FunctionName','SFPPB_plant','Position',[570 125 700 190]);
+add_block('simulink/Signal Routing/Demux',[model '/Plant states'], ...
+    'Outputs','2','Position',[740 120 745 195]);
+
+% ---------------- Controller inputs: [x1; x2; rho; O; yd] ----------------
+add_block('simulink/Signal Routing/Mux',[model '/Controller inputs'], ...
+    'Inputs','5','Position',[250 90 255 250]);
+controller_name = ['SFPPB-RL Controller',newline, ...
+    'Eqs. (7)-(16),(40),(43)-(46)'];
+add_block('simulink/User-Defined Functions/S-Function', ...
+    [model '/' controller_name],'FunctionName','SFPPB_ctrl', ...
+    'Position',[330 110 470 230]);
+
+% ---------------- Auxiliary dynamics (rho and O) ----------------
+aux_name = ['Auxiliary Dynamics',newline, ...
+    'rho: SFPPB relaxation, Eq.(11)',newline, ...
+    'O: saturation compensation, Eq.(24)'];
+add_block('simulink/User-Defined Functions/S-Function',[model '/' aux_name], ...
+    'FunctionName','SFPPB_aux','Position',[330 310 470 390]);
+add_block('simulink/Signal Routing/Demux',[model '/Auxiliary states'], ...
+    'Outputs','2','Position',[510 315 515 385]);
+
+% ---------------- Explicit input saturation S(u) ----------------
+sat_name = ['Input Saturation S(u)',newline,'Eq. (2)'];
+add_block('simulink/User-Defined Functions/S-Function',[model '/' sat_name], ...
+    'FunctionName','SFPPB_sat','Position',[570 250 700 300]);
+
+% ---------------- Controller output split: u | rest (17) ----------------
+add_block('simulink/Signal Routing/Demux',[model '/Controller outputs'], ...
+    'Outputs','[1 17]','Position',[510 105 515 240]);
+
+% ---------------- Simulation logging subsystem ----------------
+controller_rest = {'u_sat','yd','error','lower','upper','z1','z2', ...
+    'Wc1_norm','Wc2_norm','Wa1_norm','Wa2_norm','WF1_norm','WF2_norm', ...
+    'alpha1','delta','ctrl_x1','ctrl_x2'};
+addLoggingSubsystem(model, ...
+    {{'u',{'u'}}, ...
+     {'controller',controller_rest}, ...
+     {'plant',{'x1','x2'}}, ...
+     {'aux',{'rho','O'}}, ...
+     {'S_u',{'u_sat_block'}}});
+
+% ---------------- Wiring: physical loop ----------------
 add_line(model,'Plant/1','Plant states/1','autorouting','on');
 add_line(model,'Plant states/1','Controller inputs/1','autorouting','on');
 add_line(model,'Plant states/2','Controller inputs/2','autorouting','on');
-add_line(model,'Controller inputs/1','SFPPB controller/1','autorouting','on');
-add_line(model,'SFPPB controller/1','Controller signals/1','autorouting','on');
-add_line(model,'Controller signals/1','Plant/1','autorouting','on');
-add_line(model,'Controller signals/1','Auxiliary systems/1','autorouting','on');
-add_line(model,'Auxiliary systems/1','Auxiliary states/1','autorouting','on');
 add_line(model,'Auxiliary states/1','Controller inputs/3','autorouting','on');
 add_line(model,'Auxiliary states/2','Controller inputs/4','autorouting','on');
+add_line(model,'Reference yd/1','Controller inputs/5','autorouting','on');
+add_line(model,'Controller inputs/1',[controller_name '/1'],'autorouting','on');
+add_line(model,[controller_name '/1'],'Controller outputs/1','autorouting','on');
+add_line(model,'Controller outputs/1',[sat_name '/1'],'autorouting','on');
+add_line(model,'Controller outputs/1',[aux_name '/1'],'autorouting','on');
+add_line(model,[aux_name '/1'],'Auxiliary states/1','autorouting','on');
+add_line(model,[sat_name '/1'],'Plant/1','autorouting','on');
 
-addWorkspaceSignals(model,'Plant states',{'x1','x2'},[90 70]);
-controller_names = {'u','u_sat','yd','error','lower','upper','z1','z2', ...
-    'Wc1_norm','Wc2_norm','Wa1_norm','Wa2_norm','WF1_norm','WF2_norm', ...
-    'alpha1','delta','ctrl_x1','ctrl_x2'};
-addWorkspaceSignals(model,'Controller signals',controller_names,[720 67]);
-addWorkspaceSignals(model,'Auxiliary states',{'rho','O'},[720 610]);
+% ---------------- Wiring: logging ----------------
+add_line(model,'Controller outputs/1','Simulation Logging/1','autorouting','on');
+add_line(model,'Controller outputs/2','Simulation Logging/2','autorouting','on');
+add_line(model,'Plant/1','Simulation Logging/3','autorouting','on');
+add_line(model,[aux_name '/1'],'Simulation Logging/4','autorouting','on');
+add_line(model,[sat_name '/1'],'Simulation Logging/5','autorouting','on');
+
 finishModel(model);
 end
 
@@ -88,30 +132,85 @@ resetModel(model);
 setSolver(model,20);
 
 add_block('simulink/User-Defined Functions/S-Function',[model '/Plant'], ...
-    'FunctionName','SFPPB_plant','Position',[80 130 210 190]);
+    'FunctionName','SFPPB_plant','Position',[500 125 630 190]);
 add_block('simulink/Signal Routing/Demux',[model '/Plant states'], ...
-    'Outputs','2','Position',[250 125 255 195]);
+    'Outputs','2','Position',[670 120 675 195]);
+
 add_block('simulink/Signal Routing/Mux',[model '/Controller inputs'], ...
-    'Inputs','2','Position',[325 120 330 200]);
-add_block('simulink/User-Defined Functions/S-Function',[model '/Comparison controller'], ...
-    'FunctionName',char(controller),'Position',[390 125 565 195]);
-add_block('simulink/Signal Routing/Demux',[model '/Controller signals'], ...
-    'Outputs',num2str(numel(signal_names)),'Position',[615 55 620 440]);
+    'Inputs','2','Position',[180 120 185 200]);
+if algorithm=="ref42"
+    controller_name = 'Ref42 SFPPC Controller';
+else
+    controller_name = 'Ref49 ICAS Controller';
+end
+ctrl_block = [model '/' controller_name];
+add_block('simulink/User-Defined Functions/S-Function', ctrl_block, ...
+    'FunctionName',controller, ...
+    'Position',[240 110 380 230]);
+set_param(ctrl_block,'Description', ...
+    'Reference [42] SFPPC: Eqs. (24)-(25),(33),(39)-(40)');
+
+add_block('simulink/Signal Routing/Demux',[model '/Controller outputs'], ...
+    'Outputs',['[1 ' num2str(numel(signal_names)-1) ']'], ...
+    'Position',[420 105 425 240]);
+
+sat_name = 'Input Saturation S(u)';
+sat_block = [model '/' sat_name];
+add_block('simulink/User-Defined Functions/S-Function',sat_block, ...
+    'FunctionName','SFPPB_sat','Position',[500 250 630 300]);
+set_param(sat_block,'Description','Eq. (2): S(u) = sgn(u)*u_d if |u|>u_d');
+
+addLoggingSubsystem(model, ...
+    {{'u',{'u'}}, ...
+     {'controller',signal_names(2:end)}, ...
+     {'plant',{'x1','x2'}}});
 
 add_line(model,'Plant/1','Plant states/1','autorouting','on');
 add_line(model,'Plant states/1','Controller inputs/1','autorouting','on');
 add_line(model,'Plant states/2','Controller inputs/2','autorouting','on');
-add_line(model,'Controller inputs/1','Comparison controller/1','autorouting','on');
-add_line(model,'Comparison controller/1','Controller signals/1','autorouting','on');
-add_line(model,'Controller signals/1','Plant/1','autorouting','on');
+add_line(model,'Controller inputs/1',[controller_name '/1'],'autorouting','on');
+add_line(model,[controller_name '/1'],'Controller outputs/1','autorouting','on');
+add_line(model,'Controller outputs/1',[sat_name '/1'],'autorouting','on');
+add_line(model,[sat_name '/1'],'Plant/1','autorouting','on');
 
-addWorkspaceSignals(model,'Plant states',{'x1','x2'},[75 70]);
-addWorkspaceSignals(model,'Controller signals',signal_names,[710 56]);
+add_line(model,'Controller outputs/1','Simulation Logging/1','autorouting','on');
+add_line(model,'Controller outputs/2','Simulation Logging/2','autorouting','on');
+add_line(model,'Plant/1','Simulation Logging/3','autorouting','on');
+
 finishModel(model);
 end
 
+function addLoggingSubsystem(model,groups)
+%ADDLOGGINGSUBSYSTEM  One subsystem that demuxes and logs every signal.
+log_block = [model '/Simulation Logging'];
+add_block('simulink/Ports & Subsystems/Subsystem',log_block, ...
+    'Position',[830 60 1030 620]);
+delete_block([log_block '/In1']);
+delete_block([log_block '/Out1']);
+
+for g = 1:numel(groups)
+    in_name = groups{g}{1};
+    names = groups{g}{2};
+    y0 = 40 + 130*(g-1);
+    add_block('simulink/Sources/In1',[log_block '/' in_name], ...
+        'Port',num2str(g),'Position',[30 y0 60 y0+20]);
+    demux_name = ['Demux ' in_name];
+    add_block('simulink/Signal Routing/Demux',[log_block '/' demux_name], ...
+        'Outputs',num2str(numel(names)),'Position',[100 y0 105 y0+20]);
+    add_line(log_block,[in_name '/1'],[demux_name '/1'],'autorouting','on');
+    for k = 1:numel(names)
+        tw = [log_block '/To Workspace ' names{k}];
+        y = y0 + 24*(k-1);
+        add_block('simulink/Sinks/To Workspace',tw,'VariableName',names{k}, ...
+            'SaveFormat','Timeseries','Position',[170 y 300 y+20]);
+        add_line(log_block,sprintf('%s/%d',demux_name,k), ...
+            ['To Workspace ' names{k} '/1'],'autorouting','on');
+    end
+end
+end
+
 function resetModel(model)
-if bdIsLoaded(model), close_system(model,0); end
+if bdIsLoaded(model), close_system(model,1); end
 model_file = [model '.slx'];
 if isfile(model_file), delete(model_file); end
 new_system(model);
@@ -120,18 +219,6 @@ end
 function setSolver(model,stop_time)
 set_param(model,'SolverType','Fixed-step','Solver','ode4','FixedStep','0.001', ...
     'StopTime',num2str(stop_time),'ReturnWorkspaceOutputs','on');
-end
-
-function addWorkspaceSignals(model,source,signal_names,origin)
-for k = 1:numel(signal_names)
-    name = signal_names{k};
-    block = [model '/To Workspace ' name];
-    y = origin(2)+32*(k-1);
-    add_block('simulink/Sinks/To Workspace',block,'VariableName',name, ...
-        'SaveFormat','Timeseries','Position',[origin(1) y origin(1)+130 y+20]);
-    add_line(model,sprintf('%s/%d',source,k),['To Workspace ' name '/1'], ...
-        'autorouting','on');
-end
 end
 
 function finishModel(model)

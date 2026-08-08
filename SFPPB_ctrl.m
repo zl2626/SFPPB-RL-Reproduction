@@ -7,7 +7,7 @@ function [sys,x0,str,ts] = SFPPB_ctrl(t,x,u,flag)
 %    -> virtual control (44) -> z2 (15) -> RBF step 2
 %    -> Identifier/Critic/Actor step 2 -> actual control (45) -> saturation (2)
 %
-%  input  u = [x1; x2; rho; O]
+%  input  u = [x1; x2; rho; O; yd]  (yd comes from the Reference block)
 %  state  x = [WF1; Wc1; Wa1; WF2; Wc2; Wa2]
 %  output = [u; S(u); yd; e1; B_lower; B_upper; z1; z2;
 %            ||Wc1||; ||Wc2||; ||Wa1||; ||Wa2||;
@@ -31,7 +31,7 @@ sizes = simsizes;
 sizes.NumContStates  = 3*(n1+n2);
 sizes.NumDiscStates  = 0;
 sizes.NumOutputs     = 18;
-sizes.NumInputs      = 4;
+sizes.NumInputs      = 5;
 sizes.DirFeedthrough = 1;
 sizes.NumSampleTimes = 1;
 sys = simsizes(sizes);
@@ -53,14 +53,14 @@ WF1 = x(1:n1);              Wc1 = x(n1+1:2*n1);        Wa1 = x(2*n1+1:3*n1);
 WF2 = x(3*n1+1:3*n1+n2);    Wc2 = x(3*n1+n2+1:3*n1+2*n2);
 Wa2 = x(3*n1+2*n2+1:3*n1+3*n2);
 
-% ---------- plant inputs ----------
+% ---------- plant inputs and reference ----------
 x1  = u(1);
 x2  = u(2);
 rho = u(3);
 O   = u(4);
+yd  = u(5);
 
 % ---------- tracking error ----------
-yd = p.yd(t);
 e1 = x1 - yd;
 
 % ---------- learning-rate schedule (engineering layer, direction unchanged)
@@ -148,8 +148,8 @@ x1  = u(1);
 x2  = u(2);
 rho = u(3);
 O   = u(4);
+yd  = u(5);
 
-yd = p.yd(t);
 e1 = x1 - yd;
 
 if t < p.T

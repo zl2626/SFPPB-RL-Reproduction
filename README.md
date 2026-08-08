@@ -61,9 +61,30 @@ SFPPB_RL_Reproduction/
 └─ figures/               52 个可编辑 .fig
 ```
 
+## Simulink 顶层结构（物理闭环）
+
+```
+Reference yd ──> SFPPB-RL Controller ── u ──> Input Saturation S(u) ──> Plant
+                     ▲   ▲                       │                    │
+                     │   └─────── rho, O ────────┤                    │
+                     └────────── x1, x2 (反馈) ──┘                    │
+                                                    x1, x2 ────────────┘
+```
+
+- `Reference yd`：显式参考信号块（`tools/SFPPB_ref.m`，由 `SFPPB_params.m` 的 `p.yd` 驱动）。
+- `SFPPB-RL Controller`：块名直接标注 `Eqs. (7)-(16),(40),(43)-(46)`，公式在
+  `SFPPB_ctrl.m` 中按论文顺序平铺。
+- `Input Saturation S(u)`：独立的 `Eq. (2)` 饱和块（`tools/SFPPB_sat.m`）；
+  Plant 只接收 `S(u)`，饱和不再藏在 Plant 内部。
+- `Auxiliary Dynamics`：`rho`（Eq.(11)，边界松弛）与 `O`（Eq.(24)，饱和补偿）
+  独立显示并标注作用。
+- `Simulation Logging`：18 路控制器输出、状态、辅助量和饱和量全部收进一个
+  日志子系统，顶层只画控制框架。
+
 ## 工程工具（tools/）
 
 - `SFPPB_build.m`：重建三个 Simulink 模型（ode4，固定步长 0.001 s）。
+- `SFPPB_ref.m` / `SFPPB_sat.m`：顶层 Reference 与 Saturation 块。
 - `validate_main.m` / `validate_comparison.m`：验收表，包含边界/输入检查、
   delta 截断诊断、真实二次代价 `J_Q`、秩一激励方向数。
 - `SFPPB_tune.m`：同预算 Sobol 公平调参（120 次/算法/算例，目标 `J_Q`），

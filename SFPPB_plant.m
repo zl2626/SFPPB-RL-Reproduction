@@ -28,11 +28,9 @@ end
 function sys = mdlDerivatives(~,x,u)
 global SFPPB_RL_P
 p = SFPPB_RL_P;
-if p.input_saturation_enabled
-    u_applied = min(max(u(1),-p.u_d),p.u_d);
-else
-    u_applied = u(1);
-end
+% Input is the saturated signal S(u) from the explicit Saturation block:
+%   x_dot = f(x) + S(u), see Eqs. (70)-(71).
+u_applied = u(1);
 if p.example_id == 1
     f1 = -cos(2*x(1));
     f2 = cos(x(1))*sin(x(2));
