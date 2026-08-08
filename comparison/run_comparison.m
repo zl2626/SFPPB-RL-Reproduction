@@ -40,6 +40,13 @@ for example_id = 1:2
     cursor = cursor+1;
     results(cursor) = run_proposed("ref49",example_id,0.05,true,ref49_stop);
 
+    % Fig.10(d)：论文图例对应 e1(0)=0.3（仅 Example 2）
+    if example_id==2
+        cursor = cursor+1;
+        results(cursor) = run_proposed("ref49",example_id, ...
+            0.3,true,ref49_stop);
+    end
+
     % Fig.6/11：本文 vs [42]
     cursor = cursor+1;
     results(cursor) = run_reference("ref42","ref42",example_id, ...
@@ -57,6 +64,7 @@ save(fullfile(results_dir,'comparison_results.mat'),'results','-v7.3');
 save(fullfile(results_dir,'comparison_validation.mat'),'report','acceptance');
 disp(report);
 disp(acceptance);
+bdclose('all');
 
 function result = run_reference(algorithm,group,example_id,initial_error, ...
         saturation,stop_time,model)
@@ -135,7 +143,7 @@ function signals = collect_signals(out)
 names = {'x1','x2','u','u_sat','yd','error','lower','upper','z1','z2', ...
     'theta1','theta2','rho','O','Wp1_norm','Wp2_norm','Wc1_norm', ...
     'Wc2_norm','Wa1_norm','Wa2_norm','WF1_norm','WF2_norm','valid', ...
-    'alpha1','delta'};
+    'alpha1','delta','Wdiff1_norm','Wdiff2_norm'};
 signals = struct;
 available = out.who;
 for k = 1:numel(names)

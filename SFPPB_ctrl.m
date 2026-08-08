@@ -11,7 +11,8 @@ function [sys,x0,str,ts] = SFPPB_ctrl(t,x,u,flag)
 %  state  x = [WF1; Wc1; Wa1; WF2; Wc2; Wa2]
 %  output = [u; S(u); yd; e1; B_lower; B_upper; z1; z2;
 %            ||Wc1||; ||Wc2||; ||Wa1||; ||Wa2||;
-%            ||WF1||; ||WF2||; alpha1; delta; x1; x2]
+%            ||WF1||; ||WF2||; alpha1; delta; x1; x2;
+%            ||Wa1-Wc1||; ||Wa2-Wc2||]
 switch flag
     case 0, [sys,x0,str,ts] = mdlInitializeSizes;
     case 1, sys = mdlDerivatives(t,x,u);
@@ -30,7 +31,7 @@ n2 = p.n_nodes(2);
 sizes = simsizes;
 sizes.NumContStates  = 3*(n1+n2);
 sizes.NumDiscStates  = 0;
-sizes.NumOutputs     = 18;
+sizes.NumOutputs     = 20;
 sizes.NumInputs      = 5;
 sizes.DirFeedthrough = 1;
 sizes.NumSampleTimes = 1;
@@ -201,5 +202,6 @@ end
 
 sys = [u_ctrl; S_u; yd; e1; B_lower; B_upper; z1; z2; ...
     norm(Wc1); norm(Wc2); norm(Wa1); norm(Wa2); ...
-    norm(WF1); norm(WF2); alpha1; delta; x1; x2];
+    norm(WF1); norm(WF2); alpha1; delta; x1; x2; ...
+    norm(Wa1-Wc1); norm(Wa2-Wc2)];
 end

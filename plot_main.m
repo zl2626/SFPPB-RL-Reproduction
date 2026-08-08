@@ -23,8 +23,8 @@ paper.tracking_positive = 'b-';
 paper.tracking_negative = 'r-';
 paper.reference = 'k--';
 paper.error = 'r-';
-paper.upper_boundary = 'k-.';
-paper.lower_boundary = 'k:';
+paper.upper_boundary = 'k:';
+paper.lower_boundary = 'k-';
 paper.raw_input = 'k-.';
 paper.applied_input = 'r-';
 paper.first_step = 'r-';
@@ -64,6 +64,7 @@ for example_id = 1:2
         'Interpreter','latex','IconColumnWidth',50,'Location','best');
     grid on; box on;
     xlim(time_limits);
+    ylim([-0.2 0.4+0.2*double(example_id==2)]);
     apply_paper_style(gca,paper);
     save_paper_figure(fig,figure_dir,sprintf('example%d_tracking',example_id));
 
@@ -114,6 +115,7 @@ for example_id = 1:2
         end
         grid(input_ax,'on'); box(input_ax,'on');
         xlim(input_ax,time_limits);
+        ylim(input_ax,[-10 10]);
         apply_paper_style(input_ax,paper,true);
     end
     xlabel(layout,'Time (sec)','FontSize',paper.axis_font_size);
@@ -186,6 +188,7 @@ for example_id = 1:2
             'IconColumnWidth',50,'Location','best');
         grid on; box on; apply_paper_style(gca,paper);
         xlim(time_limits);
+        ylim([-10 10]);
         save_paper_figure(fig,figure_dir, ...
             sprintf('example%d_%s_control_input',example_id,tag));
 

@@ -34,3 +34,4 @@ save(fullfile(results_dir,'main_results.mat'),'results','-v7.3');
 report = validate_main(results);
 save(fullfile(results_dir,'main_validation.mat'),'report');
 disp(report);
+bdclose('all');
